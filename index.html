@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TV Supreme</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#05070a;color:#fff;font:15px Arial,sans-serif}
+header{position:sticky;top:0;z-index:5;background:#080b10ee;backdrop-filter:blur(10px);border-bottom:1px solid #18202b;padding:14px}
+.logo{text-align:center;font-size:28px;font-weight:900;letter-spacing:1px;color:#12cfff;margin-bottom:12px}
+.bar{max-width:1100px;margin:auto;display:flex;gap:8px}.bar input{flex:1;background:#111822;border:1px solid #263241;color:#fff;border-radius:10px;padding:12px}
+button,label{cursor:pointer}.btn{border:0;border-radius:10px;padding:0 15px;background:#10c8ff;color:#001018;font-weight:800}
+nav{max-width:1100px;margin:10px auto 0;display:flex;gap:7px;overflow:auto}
+nav button{white-space:nowrap;border:1px solid #27303c;background:#11151b;color:#ddd;border-radius:20px;padding:8px 14px}
+nav button.active{background:#10c8ff;color:#001018}
+main{max-width:1100px;margin:auto;padding:16px}
+.info{padding:12px;background:#0c1118;border:1px solid #202b37;border-radius:12px;margin-bottom:15px;color:#9eabb8}
+.player{display:none;background:#000;border:1px solid #1c2732;border-radius:14px;overflow:hidden;margin-bottom:18px}
+.player h3{margin:0;padding:12px;background:#0d1218;color:#10cfff;font-size:15px}
+video{width:100%;max-height:65vh;background:#000;display:block}.msg{padding:10px;text-align:center;color:#9ba6b1;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:11px}
+.card{position:relative;background:#0d1218;border:1px solid #1e2935;border-radius:12px;padding:12px;min-height:125px}
+.card:hover{border-color:#10cfff}.name{font-weight:700;line-height:1.35;min-height:42px;padding-right:20px}.group{font-size:11px;color:#748190;margin-top:5px}
+.play{width:100%;margin-top:11px;padding:10px;border:0;border-radius:9px;background:#10c8ff;color:#001018;font-weight:800}
+.fav{position:absolute;right:8px;top:8px;border:0;background:#18202a;color:#788493;border-radius:50%;width:28px;height:28px}.fav.on{color:#10cfff}
+.empty{text-align:center;color:#687481;padding:45px;grid-column:1/-1}
+@media(max-width:600px){.bar{flex-direction:column}.btn{height:44px}.grid{grid-template-columns:repeat(2,1fr);gap:8px}.card{padding:10px}}
+</style>
+</head>
+<body>
+<header>
+<div class="logo">TV SUPREME</div>
+<div class="bar">
+<input id="search" placeholder="Pesquisar TV, filmes ou séries...">
+<label class="btn" style="display:flex;align-items:center;justify-content:center">
+📂 Carregar M3U
+<input id="file" type="file" accept=".m3u,.m3u8,.txt" hidden>
+</label>
+</div>
+<nav>
+<button class="active" data-filter="all">Todos</button>
+<button data-filter="tv">📺 TV Online</button>
+<button data-filter="filmes">🎬 Filmes</button>
+<button data-filter="series">📚 Séries</button>
+<button data-filter="fav">⭐ Favoritos</button>
+</nav>
+</header>
+
+<main>
+<div id="info" class="info">Carregue seu arquivo M3U. O arquivo é processado localmente no navegador.</div>
+<section id="player" class="player">
+<h3 id="title">TV Supreme Player</h3>
+<video id="video" controls playsinline preload="metadata"></video>
+<div id="msg" class="msg">Selecione um conteúdo.</div>
+</section>
+<div id="grid" class="grid"><div class="empty">Nenhum conteúdo carregado.</div></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script>
+const $=s=>document.querySelector(s), grid=$("#grid"), info=$("#info"), file=$("#file");
+let items=[], filter="all", hls=null;
+
+function favs(){try{return JSON.parse(localStorage.tvSupremeFavs||"[]")}catch{return[]}}
+function saveFavs(x){localStorage.tvSupremeFavs=JSON.stringify(x)}
+function favorite(url){let a=favs();a.includes(url)?a=a.filter(x=>x!==url):a.push(url);saveFavs(a);render()}
+function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+
+function typeOf(name,group){
+ const x=(name+" "+group).toLowerCase();
+ if(/filme|movie|cinema/.test(x))return"filmes";
+ if(/série|serie|season|temporada|epis[oó]dio|\bs\d+\b/.test(x))return"series";
+ return"tv";
+}
+
+function parse(text){
+ const lines=text.replace(/\r/g,"").split("\n").map(x=>x.trim()).filter(Boolean);
+ let meta=null,out=[];
+ for(const line of lines){
+  if(line.startsWith("#EXTINF")){
+   const c=line.indexOf(",");
+   const name=c>=0?line.slice(c+1):"Sem nome";
+   const group=(line.match(/group-title="([^"]*)"/i)||[,""])[1];
+   const logo=(line.match(/tvg-logo="([^"]*)"/i)||[,""])[1];
+   const tvg=(line.match(/tvg-name="([^"]*)"/i)||[,""])[1];
+   meta={name:(tvg||name).trim(),group,logo}; continue;
+  }
+  if(meta&&!line.startsWith("#")){out.push({...meta,url:line,type:typeOf(meta.name,meta.group)});meta=null}
+ }
+ return out;
+}
+
+file.onchange=()=>{
+ const f=file.files[0]; if(!f)return;
+ const r=new FileReader();
+ r.onload=()=>{items=parse(r.result);info.textContent=`${items.length} conteúdos encontrados. Selecione um item para reproduzir.`;render()};
+ r.readAsText(f);
+};
+
+function render(){
+ const q=$("#search").value.toLowerCase().trim(), fs=favs();
+ const list=items.filter(x=>(filter==="all"||filter==="fav"&&fs.includes(x.url)||filter!=="fav"&&x.type===filter)&&
+ (!q||(x.name+" "+x.group).toLowerCase().includes(q)));
+ grid.innerHTML=list.length?"":"<div class='empty'>Nenhum conteúdo encontrado.</div>";
+ for(const x of list){
+  const c=document.createElement("div");c.className="card";
+  c.innerHTML=`<button class="fav ${fs.includes(x.url)?"on":""}">${fs.includes(x.url)?"★":"☆"}</button>
+  <div class="name">${esc(x.name)}</div><div class="group">${esc(x.group||"Sem categoria")}</div>
+  <button class="play">▶ Reproduzir</button>`;
+  c.querySelector(".fav").onclick=()=>favorite(x.url);
+  c.querySelector(".play").onclick=()=>play(x);
+  grid.appendChild(c);
+ }
+}
+$("#search").oninput=render;
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+ document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active");filter=b.dataset.filter;render();
+});
+
+function stop(){if(hls){hls.destroy();hls=null}$("#video").pause();$("#video").removeAttribute("src");$("#video").load()}
+function backendUrl(path,url){return path+"?url="+encodeURIComponent(url)}
+
+async function play(x){
+ stop();$("#player").style.display="block";$("#title").textContent=x.name;$("#msg").textContent="Conectando...";
+$("#player").scrollIntoView({behavior:"smooth",block:"start"});
+const v=$("#video"), url=x.url;
+const looksHls=/\.m3u8(\?|$)/i.test(url);
+if(looksHls){loadHls(backendUrl("/api/hls",url));return}
+try{
+ // O backend tenta entregar o stream diretamente ao navegador.
+ v.src=backendUrl("/api/stream",url);
+ await v.play();
+ $("#msg").textContent="Reproduzindo.";
+}catch(e){
+ $("#msg").textContent="O navegador não conseguiu iniciar este stream. Se for MPEG-TS ao vivo, use a opção HLS/FFmpeg do servidor.";
+}
+}
+
+function loadHls(src){
+ const v=$("#video");
+ if(v.canPlayType("application/vnd.apple.mpegurl")){
+  v.src=src;v.play().catch(()=>{});$("#msg").textContent="Reproduzindo HLS.";return;
+ }
+ if(window.Hls&&Hls.isSupported()){
+  hls=new Hls({enableWorker:true,lowLatencyMode:true});
+  hls.loadSource(src);hls.attachMedia(v);
+  hls.on(Hls.Events.MANIFEST_PARSED,()=>{v.play().catch(()=>{});$("#msg").textContent="Reproduzindo HLS."});
+  hls.on(Hls.Events.ERROR,(e,d)=>{if(d.fatal)$("#msg").textContent="Falha no HLS: "+d.details});
+ }else $("#msg").textContent="Este navegador não suporta HLS.";
+}
+render();
+</script>
+</body>
+</html>
